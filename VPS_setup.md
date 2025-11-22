@@ -8,10 +8,7 @@
 5 - sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
 # Adicionando as FONTES do Docker
-6 - echo \
-  "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-  "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" |
-  sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+6 - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
 7 - sudo apt-get update
 
 # Instalação dos Pacotes Docker
@@ -35,8 +32,6 @@
 
 14 - sudo apt-get install ca-certificates curl gnupg lsb-release
 15 - curl -fsSL https://azlux.fr/repo.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/azlux-archive-keyring.gpg
-16 - echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian \
-  $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/azlux.list >/dev/null
+16 - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/azlux.list >/dev/null
 17 - sudo apt-get update
-18 - sudo apt-get install docker-ctop
+18 - sudo apt-get install -y docker-ctop
