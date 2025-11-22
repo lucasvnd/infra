@@ -25,6 +25,7 @@ services:
       - USE_INBOX_AVATAR_FOR_BOT=true
       - REDIS_URL=redis://redis_cw:6380
       - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
       - POSTGRES_USERNAME=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DATABASE=cwdb
