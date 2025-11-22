@@ -161,9 +161,8 @@ def configure_minio(env_values):
         return subprocess.run(docker_cmd, capture_output=True, text=True)
 
     print_step("Setting Minio Alias...")
-    # Docker Swarm service names: stackname_servicename
-    # Try both underscore and tasks. prefix variations
-    service_names = ["7_minio_minio", "tasks.7_minio_minio"]
+    # Docker Swarm service names - use the service name directly
+    service_names = ["minio", "7_minio_minio", "tasks.7_minio_minio"]
 
     connected = False
     for service_name in service_names:
