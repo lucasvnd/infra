@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(dir:*)",
-      "Bash(nul)"
+      "Bash(nul)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nFix multi-line commands in VPS_setup.md\n\n- Consolidate Docker repo echo command to single line (step 6)\n- Consolidate ctop repo echo command to single line (step 16)\n- Add -y flag to docker-ctop install (step 18)\n\nParser was only capturing first line of multi-line commands.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
