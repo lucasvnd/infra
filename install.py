@@ -165,6 +165,7 @@ def configure_minio(env_values):
     service_names = ["minio", "7_minio_minio", "tasks.7_minio_minio"]
 
     connected = False
+    connected_service = None
     for service_name in service_names:
         cmd_alias = f"mc alias set {alias} http://{service_name}:9000 {root_user} {root_pass}"
         print_info(f"Trying to connect to {service_name}...")
@@ -174,6 +175,7 @@ def configure_minio(env_values):
             if res.returncode == 0:
                 print_success(f"Connected to Minio via {service_name}")
                 connected = True
+                connected_service = service_name
                 break
             print_info(f"Waiting for Minio service... (attempt {attempt + 1}/15)")
             time.sleep(5)
@@ -187,35 +189,46 @@ def configure_minio(env_values):
 
     # 2. Create Bucket
     print_step("Creating 'chatwoot' bucket...")
-    run_mc(f"mc mb {alias}/chatwoot --ignore-existing")
-    # Set public policy for chatwoot bucket (usually required for some assets, but Chatwoot handles signed URLs too. 
-    # Let's set it to download if needed, but standard chatwoot usually needs private + keys. 
-    # We'll stick to default private for now unless specified otherwise).
-    print_success("Bucket 'chatwoot' created")
+    # Need to set alias again in each command since each docker run is a new container
+    cmd_bucket = f"mc alias set {alias} http://{connected_service}:9000 {root_user} {root_pass} && mc mb {alias}/chatwoot --ignore-existing"
+    res = run_mc(cmd_bucket)
+    if res.returncode == 0:
+        print_success("Bucket 'chatwoot' created")
+    else:
+        print_error("Failed to create bucket")
+        print(res.stderr)
 
     # 3. Create Service Account
     print_step("Generating Access Keys...")
-    # Check if user already exists or just create a new one. 
-    # We'll create a service account for the root user restricted to the bucket, or just a general one.
-    # Simpler: Create a service account.
-    cmd_create_key = f"mc admin user svcacct add {alias} {root_user} --json"
+    # Need to set alias again and then create service account in same command
+    # because each docker run is a new container
+    cmd_create_key = f"mc alias set {alias} http://{connected_service}:9000 {root_user} {root_pass} && mc admin user svcacct add {alias} {root_user} --json"
     res = run_mc(cmd_create_key)
-    
+
     if res.returncode == 0:
         try:
-            data = json.loads(res.stdout)
-            access_key = data.get('accessKey')
-            secret_key = data.get('secretKey')
-            
-            if access_key and secret_key:
-                env_values['STORAGE_ACCESS_KEY_ID'] = access_key
-                env_values['STORAGE_SECRET_ACCESS_KEY'] = secret_key
-                print_success("Keys generated and injected into configuration.")
-                print_info(f"Access Key: {access_key}")
+            # Output contains alias success message + JSON, extract just the JSON
+            output = res.stdout.strip()
+            # Find the JSON part (starts with {)
+            json_start = output.find('{')
+            if json_start != -1:
+                json_str = output[json_start:]
+                data = json.loads(json_str)
+                access_key = data.get('accessKey')
+                secret_key = data.get('secretKey')
+
+                if access_key and secret_key:
+                    env_values['STORAGE_ACCESS_KEY_ID'] = access_key
+                    env_values['STORAGE_SECRET_ACCESS_KEY'] = secret_key
+                    print_success("Keys generated and injected into configuration.")
+                    print_info(f"Access Key: {access_key}")
+                else:
+                    print_error("Failed to parse keys from JSON.")
             else:
-                print_error("Failed to parse keys from JSON.")
-        except json.JSONDecodeError:
-            print_error("Failed to decode JSON output from mc.")
+                print_error("No JSON found in output.")
+                print(output)
+        except json.JSONDecodeError as e:
+            print_error(f"Failed to decode JSON output from mc: {e}")
             print(res.stdout)
     else:
         print_error("Failed to create service account.")
