@@ -279,16 +279,24 @@ def collect_variables(required_vars):
         'SMTP_PASS',
         'SMTP_SENDER',
         'RABBITMQ_DEFAULT_USER',
-        'POSTGRES_IMAGE',
     ]
+
+    # Variables with defaults that don't need user input
+    auto_defaults = {
+        'POSTGRES_IMAGE': 'pgvector/pgvector:pg16',
+    }
+
+    # Apply auto defaults first
+    for var, default_val in auto_defaults.items():
+        if var in required_vars:
+            env_values[var] = default_val
+            print_info(f"Using default {var}: {default_val}")
 
     # Collect user-provided values
     for var in required_vars:
         if var in user_required:
             default = ""
-            if var == 'POSTGRES_IMAGE':
-                default = "pgvector/pgvector:pg16"
-            elif var == 'SMTP_PORT':
+            if var == 'SMTP_PORT':
                 default = "587"
             elif var == 'RABBITMQ_DEFAULT_USER':
                 default = "admin"
