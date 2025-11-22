@@ -161,18 +161,29 @@ def configure_minio(env_values):
         return subprocess.run(docker_cmd, capture_output=True, text=True)
 
     print_step("Setting Minio Alias...")
-    # We use the internal service name with stack prefix
-    cmd_alias = f"mc alias set {alias} http://7_minio_minio:9000 {root_user} {root_pass}"
-    
-    for _ in range(12):
-        res = run_mc(cmd_alias)
-        if res.returncode == 0:
-            print_success("Connected to Minio")
+    # Docker Swarm service names: stackname_servicename
+    # Try both underscore and tasks. prefix variations
+    service_names = ["7_minio_minio", "tasks.7_minio_minio"]
+
+    connected = False
+    for service_name in service_names:
+        cmd_alias = f"mc alias set {alias} http://{service_name}:9000 {root_user} {root_pass}"
+        print_info(f"Trying to connect to {service_name}...")
+
+        for attempt in range(15):
+            res = run_mc(cmd_alias)
+            if res.returncode == 0:
+                print_success(f"Connected to Minio via {service_name}")
+                connected = True
+                break
+            print_info(f"Waiting for Minio service... (attempt {attempt + 1}/15)")
+            time.sleep(5)
+
+        if connected:
             break
-        print_info("Waiting for Minio service...")
-        time.sleep(5)
-    else:
-        print_error("Could not connect to Minio. Check logs.")
+
+    if not connected:
+        print_error("Could not connect to Minio. Check logs with: docker service logs 7_minio_minio")
         return
 
     # 2. Create Bucket
