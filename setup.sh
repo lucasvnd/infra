@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-REPO_URL="https://github.com/SEU_USUARIO/infra_install.git"
+REPO_URL="https://github.com/lucasvnd/infra.git"
 INSTALL_DIR="/opt/infra_installer"
 
 # Colors
