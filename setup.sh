@@ -20,6 +20,13 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# 2. Check for GitHub Token (for private repos)
+if [ -z "$GITHUB_TOKEN" ]; then
+  echo -e "${RED}ERROR: GITHUB_TOKEN environment variable is required for private repository access${NC}"
+  echo -e "${BLUE}Usage: GITHUB_TOKEN=your_token curl -sL ... | sudo -E bash${NC}"
+  exit 1
+fi
+
 # 2. Install Dependencies
 echo -e "\n${BLUE}➜ Installing dependencies...${NC}"
 apt-get update -qq
@@ -33,9 +40,11 @@ if [ -d "$INSTALL_DIR" ]; then
     rm -rf "$INSTALL_DIR"
 fi
 
-git clone "$REPO_URL" "$INSTALL_DIR"
+# Clone using token authentication for private repo
+REPO_WITH_TOKEN="https://${GITHUB_TOKEN}@github.com/lucasvnd/infra.git"
+git clone "$REPO_WITH_TOKEN" "$INSTALL_DIR"
 if [ $? -ne 0 ]; then
-    echo -e "${RED}Failed to clone repository. Please check the URL.${NC}"
+    echo -e "${RED}Failed to clone repository. Please check the token and URL.${NC}"
     exit 1
 fi
 echo -e "${GREEN}✔ Files downloaded${NC}"
