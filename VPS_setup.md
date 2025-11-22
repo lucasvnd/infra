@@ -25,7 +25,7 @@
 12 - docker swarm init --advertise-addr=#[IP Primário do Manager]
 
 # Configurar a rede do Docker Swarm
-13 - docker network create --driver=overlay network_swarm_public
+13 - docker network create --driver=overlay --attachable network_swarm_public
 
 # Instalando o CTOP
 # https://github.com/bcicen/ctop
