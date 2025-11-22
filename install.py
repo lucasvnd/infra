@@ -380,12 +380,15 @@ EOSQL
 
     # Create init script using docker to write to volume
     try:
-        # Create a temporary container to write to the volume
+        # Use cat with heredoc to properly handle the multi-line script
         cmd = [
             'docker', 'run', '--rm',
             '-v', 'postgres_init:/init',
             'alpine', 'sh', '-c',
-            f'echo \'{init_script}\' > /init/init-databases.sh && chmod +x /init/init-databases.sh'
+            f'''cat > /init/init-databases.sh << 'ENDOFSCRIPT'
+{init_script}
+ENDOFSCRIPT
+chmod +x /init/init-databases.sh'''
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
@@ -551,6 +554,18 @@ def main():
     print(f"{Colors.CYAN}n8n Webhook:{Colors.ENDC}    https://eventos.{domain}")
     print(f"{Colors.CYAN}Minio Console:{Colors.ENDC}  https://s3console.{domain}")
     print(f"{Colors.CYAN}Minio API:{Colors.ENDC}      https://s3storage.{domain}")
+
+    # Show credentials
+    print(f"\n{Colors.HEADER}{Colors.BOLD}=== Credentials ==={Colors.ENDC}")
+    if 'MINIO_ROOT_USER' in env_values:
+        print(f"{Colors.CYAN}Minio User:{Colors.ENDC}     {env_values['MINIO_ROOT_USER']}")
+        print(f"{Colors.CYAN}Minio Password:{Colors.ENDC} {env_values['MINIO_ROOT_PASSWORD']}")
+    if 'POSTGRES_PASSWORD' in env_values:
+        print(f"{Colors.CYAN}PostgreSQL User:{Colors.ENDC} postgres")
+        print(f"{Colors.CYAN}PostgreSQL Pass:{Colors.ENDC} {env_values['POSTGRES_PASSWORD']}")
+    if 'RABBITMQ_DEFAULT_USER' in env_values:
+        print(f"{Colors.CYAN}RabbitMQ User:{Colors.ENDC}  {env_values['RABBITMQ_DEFAULT_USER']}")
+        print(f"{Colors.CYAN}RabbitMQ Pass:{Colors.ENDC}  {env_values['RABBITMQ_DEFAULT_PASS']}")
     
     if os.path.exists(JOIN_TOKEN_FILE):
         print(f"\n{Colors.BOLD}To add worker nodes, run this command on other servers:{Colors.ENDC}")
