@@ -1,0 +1,3 @@
+# Ignore Windows special file that broke git add
+nul
+

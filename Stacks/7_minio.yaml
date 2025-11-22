@@ -1,0 +1,44 @@
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+    hostname: "{{.Service.Name}}.{{.Task.Slot}}"
+    command: server /data --console-address ":9001"
+    networks:
+      - network_swarm_public
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_BROWSER_REDIRECT_URL=https://s3console.${DOMINIO}
+      - MINIO_SERVER_URL=https://s3storage.${DOMINIO}
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1024M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.minio_console.rule=Host(`s3console.${DOMINIO}`)
+        - traefik.http.routers.minio_console.entrypoints=websecure
+        - traefik.http.routers.minio_console.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.minio_console.service=minio_console
+        - traefik.http.services.minio_console.loadbalancer.server.port=9001
+        - traefik.http.routers.minio_api.rule=Host(`s3storage.${DOMINIO}`)
+        - traefik.http.routers.minio_api.entrypoints=websecure
+        - traefik.http.routers.minio_api.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.minio_api.service=minio_api
+        - traefik.http.services.minio_api.loadbalancer.server.port=9000
+volumes:
+  minio_data:
+    external: true
+    name: minio_data
+networks:
+  network_swarm_public:
+    external: true
+    name: network_swarm_public
