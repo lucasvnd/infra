@@ -44,6 +44,9 @@ services:
       - STORAGE_REGION=nyc3
       - STORAGE_ENDPOINT=https://s3storage.${DOMINIO}
       - STORAGE_FORCE_PATH_STYLE=true
+      - NOOVI_LICENSE_KEY=NOOVI-ERIEZ-JH8HS-V45DI-RW6K5
+      - NOOVI_CUSTOMER_ID=CUST-ZOF-7L
+      - NOOVI_API_KEY=nai_tR0qSbls7gwuvS1wH4rCWxs3jPpehD
     deploy:
       mode: replicated
       replicas: 1

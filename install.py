@@ -132,6 +132,52 @@ import json
 
 # ... (existing imports)
 
+def configure_chatwoot():
+    """Waits for Chatwoot container to be stable and runs db:chatwoot_prepare."""
+    print_header("Phase 4.5: Configuring Chatwoot Database")
+
+    service_name = "11_chatwoot_admin_chatwoot_admin"
+
+    # 1. Wait for container to be running
+    print_step("Waiting for Chatwoot container to be ready...")
+    container_id = None
+
+    for attempt in range(30):  # Wait up to 2.5 minutes
+        result = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={service_name}"],
+            capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            container_id = result.stdout.strip().split('\n')[0]
+            print_success(f"Container found: {container_id[:12]}")
+            break
+        print_info(f"Waiting for container... (attempt {attempt + 1}/30)")
+        time.sleep(5)
+
+    if not container_id:
+        print_error("Chatwoot container not found. Run manually: docker exec -it <container_id> bundle exec rails db:chatwoot_prepare")
+        return
+
+    # 2. Wait for container to stabilize (not restarting)
+    print_step("Waiting for container to stabilize...")
+    time.sleep(30)  # Give Rails time to boot
+
+    # 3. Run db:chatwoot_prepare
+    print_step("Running database preparation...")
+    result = subprocess.run(
+        ["docker", "exec", container_id, "bundle", "exec", "rails", "db:chatwoot_prepare"],
+        capture_output=True, text=True
+    )
+
+    if result.returncode == 0:
+        print_success("Chatwoot database prepared successfully!")
+        if result.stdout:
+            print(result.stdout)
+    else:
+        print_error("Failed to prepare Chatwoot database")
+        print(result.stderr)
+        print_info("You can run manually: docker exec -it <container_id> bundle exec rails db:chatwoot_prepare")
+
 def configure_minio(env_values):
     """Configures Minio bucket and keys using a temporary Docker container."""
     print_header("Phase 2.5: Configuring Minio")
@@ -504,6 +550,11 @@ def deploy_stacks(env_values):
             # Assuming Minio is stack #7 or named '7_minio'
             if "minio" in filename and "7" in filename:
                 configure_minio(env_values)
+
+            # POST-DEPLOY HOOK: Chatwoot
+            # After chatwoot_admin is deployed, run db:chatwoot_prepare
+            if "chatwoot_admin" in filename and "11" in filename:
+                configure_chatwoot()
                 
         except subprocess.CalledProcessError:
             print_error(f"Failed to deploy {stack_name}")
