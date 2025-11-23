@@ -42,6 +42,211 @@ def print_error(msg):
 def print_info(msg):
     print(f"{Colors.BLUE}ℹ {msg}{Colors.ENDC}")
 
+# =============================================================================
+# DISTRIBUTION DETECTION AND COMMAND MAPPINGS
+# =============================================================================
+
+def detect_distro():
+    """Detects Linux distribution using /etc/os-release."""
+    distro_info = {}
+
+    if os.path.exists('/etc/os-release'):
+        with open('/etc/os-release', 'r') as f:
+            for line in f:
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    distro_info[key.lower()] = value.strip('"')
+
+    distro_id = distro_info.get('id', '').lower()
+    id_like = distro_info.get('id_like', '').lower()
+
+    # Normalize to family
+    if distro_id in ['debian']:
+        return 'debian'
+    elif distro_id in ['ubuntu', 'linuxmint', 'pop']:
+        return 'ubuntu'
+    elif distro_id in ['centos', 'rhel', 'rocky', 'almalinux', 'oracle']:
+        return 'rhel'
+    elif distro_id == 'fedora':
+        return 'fedora'
+    elif distro_id == 'alpine':
+        return 'alpine'
+    elif distro_id in ['arch', 'manjaro', 'endeavouros']:
+        return 'arch'
+    elif 'debian' in id_like or 'ubuntu' in id_like:
+        return 'debian'
+    elif 'rhel' in id_like or 'fedora' in id_like or 'centos' in id_like:
+        return 'rhel'
+
+    return 'unknown'
+
+def get_init_system():
+    """Detects init system (systemd or openrc)."""
+    if os.path.exists('/run/systemd/system'):
+        return 'systemd'
+    elif os.path.exists('/sbin/openrc'):
+        return 'openrc'
+    return 'systemd'
+
+# Command mappings for each distribution
+DISTRO_COMMANDS = {
+    'debian': {
+        'update': 'apt update && apt full-upgrade -y',
+        'install_base': 'apt install -y sudo gnupg2 wget ca-certificates apt-transport-https curl gnupg nano htop',
+        'docker_repo_setup': [
+            'install -m 0755 -d /etc/apt/keyrings',
+            'curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg',
+            'chmod a+r /etc/apt/keyrings/docker.gpg',
+            'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null',
+            'apt-get update',
+        ],
+        'install_docker': 'apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin',
+        'enable_docker': 'systemctl enable docker.service && systemctl enable containerd.service',
+    },
+    'ubuntu': {
+        'update': 'apt update && apt full-upgrade -y',
+        'install_base': 'apt install -y sudo gnupg2 wget ca-certificates apt-transport-https curl gnupg nano htop',
+        'docker_repo_setup': [
+            'install -m 0755 -d /etc/apt/keyrings',
+            'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg',
+            'chmod a+r /etc/apt/keyrings/docker.gpg',
+            'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null',
+            'apt-get update',
+        ],
+        'install_docker': 'apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin',
+        'enable_docker': 'systemctl enable docker.service && systemctl enable containerd.service',
+    },
+    'rhel': {
+        'update': 'dnf update -y',
+        'install_base': 'dnf install -y sudo gnupg2 wget ca-certificates curl nano htop dnf-plugins-core',
+        'docker_repo_setup': [
+            'dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo',
+        ],
+        'install_docker': 'dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin',
+        'enable_docker': 'systemctl enable docker.service && systemctl enable containerd.service',
+    },
+    'fedora': {
+        'update': 'dnf update -y',
+        'install_base': 'dnf install -y sudo gnupg2 wget ca-certificates curl nano htop dnf-plugins-core',
+        'docker_repo_setup': [
+            'dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo',
+        ],
+        'install_docker': 'dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin',
+        'enable_docker': 'systemctl enable docker.service && systemctl enable containerd.service',
+    },
+    'alpine': {
+        'update': 'apk update && apk upgrade',
+        'install_base': 'apk add sudo gnupg wget ca-certificates curl nano htop bash',
+        'docker_repo_setup': [],  # Docker is in community repos
+        'install_docker': 'apk add docker docker-cli-compose',
+        'enable_docker': 'rc-update add docker boot',
+    },
+    'arch': {
+        'update': 'pacman -Syu --noconfirm',
+        'install_base': 'pacman -S --noconfirm sudo gnupg wget ca-certificates curl nano htop',
+        'docker_repo_setup': [],  # Docker is in official repos
+        'install_docker': 'pacman -S --noconfirm docker docker-compose docker-buildx',
+        'enable_docker': 'systemctl enable docker.service && systemctl enable containerd.service',
+    },
+}
+
+def generate_vps_setup_commands(distro):
+    """Generates VPS setup commands based on detected distribution."""
+    if distro not in DISTRO_COMMANDS:
+        print_error(f"Unsupported distribution: {distro}")
+        return []
+
+    cmds = DISTRO_COMMANDS[distro]
+    commands = []
+
+    # 1. System update
+    commands.append(('System Update', cmds['update']))
+
+    # 2. Install base packages
+    commands.append(('Install Base Packages', cmds['install_base']))
+
+    # 3. Docker repository setup
+    for i, cmd in enumerate(cmds['docker_repo_setup'], 1):
+        commands.append((f'Docker Repo Setup ({i}/{len(cmds["docker_repo_setup"])})', cmd))
+
+    # 4. Install Docker
+    commands.append(('Install Docker', cmds['install_docker']))
+
+    # 5. Enable Docker services
+    commands.append(('Enable Docker Services', cmds['enable_docker']))
+
+    # 6. Start Docker
+    init_system = get_init_system()
+    if init_system == 'systemd':
+        commands.append(('Start Docker', 'systemctl start docker'))
+    else:
+        commands.append(('Start Docker', 'rc-service docker start'))
+
+    # 7. Docker Swarm Init (placeholder - will be handled specially)
+    commands.append(('Docker Swarm Init', 'docker swarm init --advertise-addr=#'))
+
+    # 8. Create network
+    commands.append(('Create Docker Network', 'docker network create --driver=overlay --attachable network_swarm_public'))
+
+    return commands
+
+def execute_distro_vps_setup():
+    """Executes VPS setup using distro-specific commands."""
+    print_header("Phase 1: VPS Setup")
+
+    # Detect distribution
+    distro = detect_distro()
+    if distro == 'unknown':
+        print_error("Could not detect Linux distribution!")
+        print_info("Supported: Debian, Ubuntu, CentOS/RHEL, Fedora, Alpine, Arch")
+        if input("Try to continue with Debian commands? (y/n): ").lower() != 'y':
+            return False
+        distro = 'debian'
+
+    print_success(f"Detected distribution: {distro.upper()}")
+
+    # Generate commands for this distro
+    commands = generate_vps_setup_commands(distro)
+    if not commands:
+        return False
+
+    total = len(commands)
+    manager_ip = None
+
+    for i, (description, cmd) in enumerate(commands, 1):
+        print_step(f"Step {i}/{total}: {description}")
+
+        # Handle Swarm Init specially
+        if "docker swarm init" in cmd:
+            if "--advertise-addr=#" in cmd:
+                print_info("Configuring Docker Swarm Advertise Address...")
+                manager_ip = get_server_ip()
+                if not manager_ip:
+                    manager_ip = input(f"{Colors.WARNING}Could not auto-detect IP. Enter Manager IP: {Colors.ENDC}").strip()
+
+                cmd = cmd.replace('#', manager_ip)
+                print_info(f"Resolved command: {cmd}")
+
+            if execute_command(cmd, description):
+                print_info("Capturing Swarm Join Token...")
+                token_res = subprocess.run("docker swarm join-token worker", shell=True, capture_output=True, text=True, executable='/bin/bash')
+                if token_res.returncode == 0:
+                    with open(JOIN_TOKEN_FILE, 'w') as f:
+                        f.write(token_res.stdout)
+                    print_success(f"Token saved to {JOIN_TOKEN_FILE}")
+                else:
+                    print_error("Failed to capture join token")
+            else:
+                print_info("Swarm might already be initialized. Continuing...")
+            continue
+
+        # Normal command
+        if not execute_command(cmd, description):
+            if input(f"{Colors.WARNING}Command failed. Continue? (y/n): {Colors.ENDC}").lower() != 'y':
+                return False
+
+    return True
+
 def get_server_ip():
     """Auto-detects the primary IP address of the server."""
     try:
@@ -587,12 +792,9 @@ def main():
         print("Please ensure you have uploaded the entire 'infra_install' folder.")
         sys.exit(1)
 
-    # 1. VPS Setup
-    setup_cmds = parse_vps_setup()
-    if setup_cmds:
-        print_info(f"Found {len(setup_cmds)} setup steps.")
-        if input("Run VPS Setup? (y/n): ").lower() == 'y':
-            execute_vps_setup(setup_cmds)
+    # 1. VPS Setup (Multi-Distro Support)
+    if input("Run VPS Setup? (y/n): ").lower() == 'y':
+        execute_distro_vps_setup()
     
     # 2. Variables
     req_vars = get_required_variables()
