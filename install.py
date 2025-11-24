@@ -7,11 +7,13 @@ import time
 import shutil
 import secrets
 import string
+from portainer_api import PortainerAPI
 
 # Configuration
 VPS_SETUP_FILE = "VPS_setup.md"
 STACKS_DIR = "Stacks"
 JOIN_TOKEN_FILE = "swarm_join_token.txt"
+PORTAINER_CREDENTIALS_FILE = "/root/portainer_credentials.txt"
 
 # ANSI Colors
 class Colors:
@@ -485,6 +487,64 @@ def configure_minio(env_values):
         print_error("Failed to create service account.")
         print(res.stderr)
 
+def generate_portainer_password():
+    """Generates a secure password for Portainer admin."""
+    alphabet = string.ascii_letters + string.digits
+    password = ''.join(secrets.choice(alphabet) for _ in range(32))
+    return password
+
+def initialize_portainer_api(env_values):
+    """Initializes Portainer API after Portainer stack deployment."""
+    print_header("Phase 2.1: Initializing Portainer API")
+
+    # Generate admin credentials
+    admin_username = "admin"
+    admin_password = generate_portainer_password()
+
+    print_step("Configuring Portainer API access...")
+    print_info(f"Admin username: {admin_username}")
+
+    # Initialize API client
+    portainer_api = PortainerAPI(base_url="http://localhost:9000")
+
+    # Wait for Portainer to be ready
+    if not portainer_api.wait_for_portainer(timeout=120):
+        print_error("Portainer did not become ready in time")
+        return None
+
+    # Initialize admin user
+    if not portainer_api.initialize_admin(admin_username, admin_password):
+        print_error("Failed to initialize Portainer admin")
+        return None
+
+    # Authenticate and get JWT token
+    if not portainer_api.authenticate(admin_username, admin_password):
+        print_error("Failed to authenticate with Portainer")
+        return None
+
+    # Get endpoint ID
+    endpoint_id = portainer_api.get_endpoint_id()
+    if not endpoint_id:
+        print_error("Failed to get Portainer endpoint ID")
+        return None
+
+    # Save credentials to file
+    try:
+        with open(PORTAINER_CREDENTIALS_FILE, 'w') as f:
+            f.write(f"Username: {admin_username}\n")
+            f.write(f"Password: {admin_password}\n")
+            f.write(f"Endpoint ID: {endpoint_id}\n")
+        print_success(f"Credentials saved to {PORTAINER_CREDENTIALS_FILE}")
+    except Exception as e:
+        print_error(f"Failed to save credentials: {e}")
+
+    # Store password in env_values for display at the end
+    env_values['PORTAINER_ADMIN_USER'] = admin_username
+    env_values['PORTAINER_ADMIN_PASSWORD'] = admin_password
+
+    print_success("Portainer API initialized successfully")
+    return portainer_api
+
 def get_required_variables():
     """Scans stack files for variables."""
     required_vars = set()
@@ -707,36 +767,43 @@ def validate_configuration(env_values, required_vars):
     return True
 
 def deploy_stacks(env_values):
-    """Deploys stacks."""
+    """Deploys stacks using Docker CLI for bootstrap (stacks 1-2) and Portainer API for the rest."""
     print_header("Phase 4: Stack Deployment")
-    
+
     files = glob.glob(os.path.join(STACKS_DIR, "*.yaml")) + glob.glob(os.path.join(STACKS_DIR, "*.yml"))
-    
+
     def sort_key(f):
         basename = os.path.basename(f)
         match = re.match(r'^(\d+)_', basename)
         return int(match.group(1)) if match else 999
 
     files.sort(key=sort_key)
-    
+
     if not files:
         print_error(f"No stack files found in {STACKS_DIR}")
         return
+
+    # Initialize Portainer API client (will be set after stack 2)
+    portainer_api = None
 
     total = len(files)
     for i, file_path in enumerate(files, 1):
         filename = os.path.basename(file_path)
         stack_name = os.path.splitext(filename)[0]
-        
+
+        # Extract stack number
+        stack_number_match = re.match(r'^(\d+)_', filename)
+        stack_number = int(stack_number_match.group(1)) if stack_number_match else 999
+
         print_step(f"Deploying Stack {i}/{total}: {stack_name}")
-        
+
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         # Replace variables
         for var, val in env_values.items():
             content = content.replace(f"${{{var}}}", val)
-            
+
         # Check for missing
         remaining = re.findall(r'\$\{([A-Z0-9_]+)\}', content)
         if remaining:
@@ -744,27 +811,74 @@ def deploy_stacks(env_values):
             if input("Continue? (y/n): ").lower() != 'y':
                 continue
 
-        # Deploy
-        cmd = ["docker", "stack", "deploy", "-c", "-", stack_name]
-        try:
-            subprocess.run(cmd, input=content, text=True, check=True)
-            print_success(f"{stack_name} deployed successfully")
-            time.sleep(5) # Wait a bit
-            
+        # Deploy using Docker CLI for stacks 1-2 (bootstrap), API for the rest
+        deployment_success = False
+
+        if stack_number <= 2:
+            # Use Docker CLI for Traefik and Portainer (bootstrap)
+            print_info("Using Docker CLI for bootstrap deployment")
+            cmd = ["docker", "stack", "deploy", "-c", "-", stack_name]
+            try:
+                subprocess.run(cmd, input=content, text=True, check=True)
+                print_success(f"{stack_name} deployed successfully")
+                deployment_success = True
+                time.sleep(5)  # Wait for services to start
+
+                # After Portainer is deployed, initialize API
+                if stack_number == 2 and "portainer" in filename:
+                    portainer_api = initialize_portainer_api(env_values)
+                    if not portainer_api:
+                        print_error("Failed to initialize Portainer API. Falling back to Docker CLI for remaining stacks.")
+
+            except subprocess.CalledProcessError:
+                print_error(f"Failed to deploy {stack_name}")
+                if input("Abort? (y/n): ").lower() == 'y':
+                    sys.exit(1)
+        else:
+            # Use Portainer API for stacks 3+
+            if portainer_api:
+                print_info("Using Portainer API for deployment")
+                deployment_success = portainer_api.deploy_stack(stack_name, content, max_retries=3)
+
+                if deployment_success:
+                    # Check stack status
+                    portainer_api.check_stack_status(stack_name, timeout=60)
+                else:
+                    print_error(f"Failed to deploy {stack_name} via Portainer API")
+                    print_info("Falling back to Docker CLI...")
+                    cmd = ["docker", "stack", "deploy", "-c", "-", stack_name]
+                    try:
+                        subprocess.run(cmd, input=content, text=True, check=True)
+                        print_success(f"{stack_name} deployed successfully via Docker CLI fallback")
+                        deployment_success = True
+                        time.sleep(5)
+                    except subprocess.CalledProcessError:
+                        print_error(f"Failed to deploy {stack_name} even with Docker CLI fallback")
+                        if input("Abort? (y/n): ").lower() == 'y':
+                            sys.exit(1)
+            else:
+                # Portainer API not available, use Docker CLI
+                print_info("Portainer API not available, using Docker CLI")
+                cmd = ["docker", "stack", "deploy", "-c", "-", stack_name]
+                try:
+                    subprocess.run(cmd, input=content, text=True, check=True)
+                    print_success(f"{stack_name} deployed successfully")
+                    deployment_success = True
+                    time.sleep(5)
+                except subprocess.CalledProcessError:
+                    print_error(f"Failed to deploy {stack_name}")
+                    if input("Abort? (y/n): ").lower() == 'y':
+                        sys.exit(1)
+
+        # POST-DEPLOY HOOKS (only if deployment was successful)
+        if deployment_success:
             # POST-DEPLOY HOOK: Minio
-            # Assuming Minio is stack #7 or named '7_minio'
             if "minio" in filename and "7" in filename:
                 configure_minio(env_values)
 
             # POST-DEPLOY HOOK: Chatwoot
-            # After chatwoot_admin is deployed, run db:chatwoot_prepare
             if "chatwoot_admin" in filename and "11" in filename:
                 configure_chatwoot()
-                
-        except subprocess.CalledProcessError:
-            print_error(f"Failed to deploy {stack_name}")
-            if input("Abort? (y/n): ").lower() == 'y':
-                sys.exit(1)
 
 def main():
 # ... (rest of main)
@@ -830,6 +944,9 @@ def main():
 
     # Show credentials
     print(f"\n{Colors.HEADER}{Colors.BOLD}=== Credentials ==={Colors.ENDC}")
+    if 'PORTAINER_ADMIN_USER' in env_values:
+        print(f"{Colors.CYAN}Portainer User:{Colors.ENDC} {env_values['PORTAINER_ADMIN_USER']}")
+        print(f"{Colors.CYAN}Portainer Pass:{Colors.ENDC} {env_values['PORTAINER_ADMIN_PASSWORD']}")
     if 'MINIO_ROOT_USER' in env_values:
         print(f"{Colors.CYAN}Minio User:{Colors.ENDC}     {env_values['MINIO_ROOT_USER']}")
         print(f"{Colors.CYAN}Minio Password:{Colors.ENDC} {env_values['MINIO_ROOT_PASSWORD']}")
@@ -839,7 +956,13 @@ def main():
     if 'RABBITMQ_DEFAULT_USER' in env_values:
         print(f"{Colors.CYAN}RabbitMQ User:{Colors.ENDC}  {env_values['RABBITMQ_DEFAULT_USER']}")
         print(f"{Colors.CYAN}RabbitMQ Pass:{Colors.ENDC}  {env_values['RABBITMQ_DEFAULT_PASS']}")
-    
+
+    # Highlight credentials file location
+    if os.path.exists(PORTAINER_CREDENTIALS_FILE):
+        print(f"\n{Colors.WARNING}{Colors.BOLD}⚠️  IMPORTANT: Portainer credentials saved to:{Colors.ENDC}")
+        print(f"{Colors.GREEN}{Colors.BOLD}    {PORTAINER_CREDENTIALS_FILE}{Colors.ENDC}")
+        print(f"{Colors.BLUE}    Run: cat {PORTAINER_CREDENTIALS_FILE}{Colors.ENDC}")
+
     if os.path.exists(JOIN_TOKEN_FILE):
         print(f"\n{Colors.BOLD}To add worker nodes, run this command on other servers:{Colors.ENDC}")
         with open(JOIN_TOKEN_FILE, 'r') as f:
