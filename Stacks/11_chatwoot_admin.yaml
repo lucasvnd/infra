@@ -3,7 +3,18 @@ services:
     image: nooviai/noovichat:4.7.0-beta
     hostname: "{{.Service.Name}}.{{.Task.Slot}}"
     command: >
-      sh -c "bundle exec rails db:chatwoot_prepare && bundle exec rails s -p 3000 -b 0.0.0.0"
+      sh -c "
+        echo 'Waiting for PostgreSQL...' &&
+        until pg_isready -h postgres -p 5432 -U postgres; do
+          echo 'PostgreSQL not ready, waiting 5s...' &&
+          sleep 5;
+        done &&
+        echo 'PostgreSQL is ready!' &&
+        echo 'Running db:chatwoot_prepare...' &&
+        bundle exec rails db:chatwoot_prepare &&
+        echo 'Database prepared! Starting Rails server...' &&
+        bundle exec rails s -p 3000 -b 0.0.0.0
+      "
     volumes:
       - chatwoot_storage:/app/storage
       - chatwoot_public:/app/public
