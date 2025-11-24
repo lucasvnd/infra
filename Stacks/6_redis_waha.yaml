@@ -1,0 +1,27 @@
+services:
+  redis_waha:
+    image: redis:8.4.0-alpine3.22
+    hostname: "{{.Service.Name}}.{{.Task.Slot}}"
+    command: redis-server --appendonly yes --port 6382
+    networks:
+      - network_swarm_public
+    volumes:
+      - redis_waha_data:/data
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1024M
+volumes:
+  redis_waha_data:
+    external: true
+    name: redis_waha_data
+networks:
+  network_swarm_public:
+    external: true
+    name: network_swarm_public

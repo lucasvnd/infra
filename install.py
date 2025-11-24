@@ -7,6 +7,7 @@ import time
 import shutil
 import secrets
 import string
+import hashlib
 from portainer_api import PortainerAPI
 
 # Configuration
@@ -534,6 +535,10 @@ def initialize_portainer_api(env_values):
             f.write(f"Username: {admin_username}\n")
             f.write(f"Password: {admin_password}\n")
             f.write(f"Endpoint ID: {endpoint_id}\n")
+            if 'WAHA_API_KEY_PLAIN' in env_values:
+                f.write(f"\nWAHA API Key: {env_values['WAHA_API_KEY_PLAIN']}\n")
+                f.write(f"WAHA Dashboard User: {env_values['WAHA_DASHBOARD_USERNAME']}\n")
+                f.write(f"WAHA Dashboard Pass: {env_values['WAHA_DASHBOARD_PASSWORD']}\n")
         print_success(f"Credentials saved to {PORTAINER_CREDENTIALS_FILE}")
     except Exception as e:
         print_error(f"Failed to save credentials: {e}")
@@ -541,6 +546,19 @@ def initialize_portainer_api(env_values):
     # Store password in env_values for display at the end
     env_values['PORTAINER_ADMIN_USER'] = admin_username
     env_values['PORTAINER_ADMIN_PASSWORD'] = admin_password
+
+    # Add WAHA Docker Hub registry
+    if 'WAHA_DOCKER_HUB_KEY' in env_values:
+        print_step("Adding WAHA Docker Hub registry...")
+        if portainer_api.add_registry(
+            name="WAHA Docker Hub",
+            url="docker.io",
+            username="devlikeapro",
+            password=env_values['WAHA_DOCKER_HUB_KEY']
+        ):
+            print_success("WAHA Docker Hub registry added")
+        else:
+            print_warning("Failed to add WAHA Docker Hub registry - you may need to add it manually")
 
     print_success("Portainer API initialized successfully")
     return portainer_api
@@ -573,6 +591,10 @@ def generate_secret_key_base():
     """Generates a 128-character hex string for SECRET_KEY_BASE."""
     return secrets.token_hex(64)
 
+def generate_sha512_hash(text):
+    """Generates a SHA512 hash of the given text."""
+    return hashlib.sha512(text.encode()).hexdigest()
+
 def get_auto_generated_vars():
     """Returns variables that should be auto-generated with their generators."""
     return {
@@ -584,6 +606,10 @@ def get_auto_generated_vars():
         'RABBITMQ_ERLANG_COOKIE': lambda: generate_password(48),
         'N8N_ENCRYPTION_KEY': lambda: generate_password(32),
         'SECRET_KEY_BASE': lambda: generate_secret_key_base(),
+        'WAHA_API_KEY_PLAIN': lambda: generate_password(32),
+        'WAHA_API_KEY_PLAIN_SHA512': lambda: None,  # Will be generated from WAHA_API_KEY_PLAIN
+        'WAHA_DASHBOARD_USERNAME': lambda: generate_password(16),
+        'WAHA_DASHBOARD_PASSWORD': lambda: generate_password(32),
     }
 
 def collect_variables(required_vars):
@@ -603,6 +629,7 @@ def collect_variables(required_vars):
         'SMTP_PASS',
         'SMTP_SENDER',
         'RABBITMQ_DEFAULT_USER',
+        'WAHA_DOCKER_HUB_KEY',
     ]
 
     # Variables with defaults that don't need user input
@@ -651,6 +678,11 @@ def collect_variables(required_vars):
         env_values['DB_POSTGRESDB_PASSWORD'] = env_values['POSTGRES_PASSWORD']
         print_info("Synced DB_POSTGRESDB_PASSWORD with POSTGRES_PASSWORD")
 
+    # Generate SHA512 hash for WAHA API key
+    if 'WAHA_API_KEY_PLAIN' in env_values:
+        env_values['WAHA_API_KEY_PLAIN_SHA512'] = generate_sha512_hash(env_values['WAHA_API_KEY_PLAIN'])
+        print_info("Generated WAHA_API_KEY_PLAIN_SHA512 from WAHA_API_KEY_PLAIN")
+
     # Sync SMTP credentials for Chatwoot compatibility
     if 'SMTP_HOST' in env_values:
         env_values['SMTP_ADDRESS'] = env_values['SMTP_HOST']
@@ -673,6 +705,8 @@ def create_docker_volumes():
         'portainer_data',
         'redis_data',
         'redis_cw_data',
+        'redis_n8n_data',
+        'redis_waha_data',
         'postgres_data',
         'postgres_init',
         'rabbitmq_data',
@@ -704,8 +738,10 @@ set -e
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     CREATE DATABASE n8n;
     CREATE DATABASE cwdb;
+    CREATE DATABASE wahadb;
     GRANT ALL PRIVILEGES ON DATABASE n8n TO postgres;
     GRANT ALL PRIVILEGES ON DATABASE cwdb TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE wahadb TO postgres;
 EOSQL
 """
 
@@ -941,6 +977,7 @@ def main():
     print(f"{Colors.CYAN}n8n Webhook:{Colors.ENDC}    https://eventos.{domain}")
     print(f"{Colors.CYAN}Minio Console:{Colors.ENDC}  https://s3console.{domain}")
     print(f"{Colors.CYAN}Minio API:{Colors.ENDC}      https://s3storage.{domain}")
+    print(f"{Colors.CYAN}WAHA API:{Colors.ENDC}       https://wapi.{domain}")
 
     # Show credentials
     print(f"\n{Colors.HEADER}{Colors.BOLD}=== Credentials ==={Colors.ENDC}")
@@ -956,6 +993,10 @@ def main():
     if 'RABBITMQ_DEFAULT_USER' in env_values:
         print(f"{Colors.CYAN}RabbitMQ User:{Colors.ENDC}  {env_values['RABBITMQ_DEFAULT_USER']}")
         print(f"{Colors.CYAN}RabbitMQ Pass:{Colors.ENDC}  {env_values['RABBITMQ_DEFAULT_PASS']}")
+    if 'WAHA_API_KEY_PLAIN' in env_values:
+        print(f"{Colors.CYAN}WAHA API Key:{Colors.ENDC}   {env_values['WAHA_API_KEY_PLAIN']}")
+        print(f"{Colors.CYAN}WAHA Dashboard User:{Colors.ENDC} {env_values['WAHA_DASHBOARD_USERNAME']}")
+        print(f"{Colors.CYAN}WAHA Dashboard Pass:{Colors.ENDC} {env_values['WAHA_DASHBOARD_PASSWORD']}")
 
     # Highlight credentials file location
     if os.path.exists(PORTAINER_CREDENTIALS_FILE):

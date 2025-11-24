@@ -431,3 +431,61 @@ class PortainerAPI:
 
         except requests.exceptions.RequestException:
             return None
+
+    def add_registry(self, name: str, url: str, username: str, password: str) -> bool:
+        """
+        Add a Docker registry to Portainer
+
+        Args:
+            name: Registry name (e.g., "WAHA Docker Hub")
+            url: Registry URL (e.g., "docker.io" for Docker Hub)
+            username: Registry username
+            password: Registry password/token
+
+        Returns:
+            True if successful or registry already exists, False otherwise
+        """
+        try:
+            # Check if registry already exists
+            list_url = f"{self.api_url}/registries"
+            response = requests.get(
+                list_url,
+                headers=self._get_headers(),
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                existing_registries = response.json()
+                for registry in existing_registries:
+                    if registry.get('Name') == name or (registry.get('URL') == url and registry.get('Username') == username):
+                        print(f"ℹ️  Registry '{name}' já existe")
+                        return True
+
+            # Create new registry
+            payload = {
+                "Name": name,
+                "Type": 1,  # Docker Hub type
+                "URL": url,
+                "Authentication": True,
+                "Username": username,
+                "Password": password
+            }
+
+            create_url = f"{self.api_url}/registries"
+            response = requests.post(
+                create_url,
+                headers=self._get_headers(),
+                json=payload,
+                timeout=10
+            )
+
+            if response.status_code in [200, 201]:
+                print(f"✅ Registry '{name}' adicionado com sucesso")
+                return True
+            else:
+                print(f"❌ Erro ao adicionar registry: {response.status_code} - {response.text}", file=sys.stderr)
+                return False
+
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Erro de conexão ao adicionar registry: {e}", file=sys.stderr)
+            return False

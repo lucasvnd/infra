@@ -30,8 +30,8 @@ services:
       - WEBHOOK_URL=https://eventos.${DOMINIO}
       - N8N_ENDPOINT_WEBHOOK=webhook
       - EXECUTIONS_MODE=queue
-      - QUEUE_BULL_REDIS_HOST=3_redis_redis
-      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_HOST=5_redis_n8n_redis_n8n
+      - QUEUE_BULL_REDIS_PORT=6381
       - QUEUE_BULL_REDIS_DB=1
       - EXECUTIONS_TIMEOUT=3600
       - EXECUTIONS_TIMEOUT_MAX=7200

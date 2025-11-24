@@ -1,8 +1,8 @@
 services:
-  n8n_editor:
+  n8n_webhook:
     image: n8nio/n8n:1.117.2
     hostname: "{{.Service.Name}}.{{.Task.Slot}}"
-    command: start
+    command: webhook
     networks:
       - network_swarm_public
     environment:
@@ -30,8 +30,8 @@ services:
       - WEBHOOK_URL=https://eventos.${DOMINIO}
       - N8N_ENDPOINT_WEBHOOK=webhook
       - EXECUTIONS_MODE=queue
-      - QUEUE_BULL_REDIS_HOST=3_redis_redis
-      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_HOST=5_redis_n8n_redis_n8n
+      - QUEUE_BULL_REDIS_PORT=6381
       - QUEUE_BULL_REDIS_DB=1
       - EXECUTIONS_TIMEOUT=3600
       - EXECUTIONS_TIMEOUT_MAX=7200
@@ -72,16 +72,16 @@ services:
           - node.role == manager
       resources:
         limits:
-          cpus: "1.5"
-          memory: 2048M
+          cpus: "1"
+          memory: 1024M
       labels:
         - traefik.enable=true
-        - traefik.http.routers.n8n_editor.rule=Host(`automacao.${DOMINIO}`)
-        - traefik.http.routers.n8n_editor.entrypoints=websecure
-        - traefik.http.routers.n8n_editor.tls.certresolver=letsencryptresolver
-        - traefik.http.routers.n8n_editor.service=n8n_editor
-        - traefik.http.services.n8n_editor.loadbalancer.server.port=5678
-        - traefik.http.services.n8n_editor.loadbalancer.passHostHeader=true
+        - traefik.http.routers.n8n_webhook.rule=Host(`eventos.${DOMINIO}`)
+        - traefik.http.routers.n8n_webhook.entrypoints=websecure
+        - traefik.http.routers.n8n_webhook.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.n8n_webhook.service=n8n_webhook
+        - traefik.http.services.n8n_webhook.loadbalancer.server.port=5678
+        - traefik.http.services.n8n_webhook.loadbalancer.passHostHeader=true
       update_config:
         parallelism: 1
         delay: 30s
